@@ -20,8 +20,30 @@ Esta versión añade atributos estructurales y temáticos para análisis de homo
 
 ## Instalación
 
+Puedes preparar todo el entorno de trabajo automáticamente usando el script `setup_env.sh`.
+
+### 1. Ejecuta el script
+
 ```bash
-pip install atproto networkx tqdm
+bash setup_env.sh
+```
+
+Esto realizará lo siguiente:
+
+- Creará un entorno virtual en `./venv`
+- Instalará todas las dependencias necesarias desde `requirements.txt`
+- Descargará el modelo de lenguaje `en_core_web_sm` de spaCy
+
+### 2. Activa el entorno virtual
+
+```bash
+source venv/bin/activate
+```
+
+Una vez activado, ya puedes ejecutar el script con tus parámetros:
+
+```bash
+python bluesky_to_gephi_nlp.py --handle ... --app-password ... --target ...
 ```
 
 ## Ejemplo de uso
@@ -115,4 +137,3 @@ Una vez importes el archivo `salida_nodes.csv` o el `.gexf` en Gephi, podrás tr
 - También puedes exportar por separado subgrafos de cada tema si lo necesitas para análisis comparativo.
 
 Este enfoque te permite estudiar asortatividad dentro de clases semánticas aproximadas sin necesidad de etiquetado manual ni NLP avanzado.
-
