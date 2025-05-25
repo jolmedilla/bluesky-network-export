@@ -20,6 +20,8 @@ Esta versión añade atributos estructurales y temáticos para análisis de homo
 
 ## Instalación
 
+## Preparación del entorno (setup)
+
 Puedes preparar todo el entorno de trabajo automáticamente usando el script `setup_env.sh`.
 
 ### 1. Ejecuta el script
@@ -45,6 +47,7 @@ Una vez activado, ya puedes ejecutar el script con tus parámetros:
 ```bash
 python bluesky_to_gephi_nlp.py --handle ... --app-password ... --target ...
 ```
+
 
 ## Ejemplo de uso
 
@@ -86,13 +89,6 @@ python bluesky_to_gephi_extended.py \
 - `literature`: libros, poesía, escritura
 - `climate`: ecología, medio ambiente
 - `other`: sin tema detectado
-
-## Licencia
-
-MIT
-
-
-
 
 ## Cómo se detecta el tema (`topicLabel`) usando NLP
 
@@ -137,3 +133,33 @@ Una vez importes el archivo `salida_nodes.csv` o el `.gexf` en Gephi, podrás tr
 - También puedes exportar por separado subgrafos de cada tema si lo necesitas para análisis comparativo.
 
 Este enfoque te permite estudiar asortatividad dentro de clases semánticas aproximadas sin necesidad de etiquetado manual ni NLP avanzado.
+
+## Cálculo de asortatividad (opcional)
+
+Puedes calcular directamente desde Python diferentes coeficientes de asortatividad con el flag `--assortativity`.
+
+### Cómo usarlo
+
+```bash
+python bluesky_to_gephi_nlp_assortativity.py \
+  --handle tuusuario.bsky.social \
+  --app-password xxxx-xxxx-xxxx-xxxx \
+  --target @otro.bsky.social \
+  --assortativity
+```
+
+### Qué se calcula
+
+- **Asortatividad por grado** (`degree_assortativity_coefficient`)
+- **Asortatividad numérica** por:
+  - `followersCount`
+  - `followsCount`
+  - `postsCount`
+- **Asortatividad categórica** por `topicLabel`
+
+Se imprimen los resultados directamente en consola. Esta opción es útil para hacer análisis preliminares sin depender de Gephi.
+
+
+## Licencia
+
+MIT
