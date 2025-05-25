@@ -68,3 +68,31 @@ python bluesky_to_gephi_extended.py \
 ## Licencia
 
 MIT
+
+
+## Cómo usar `topicLabel` en Gephi
+
+Una vez importes el archivo `salida_nodes.csv` o el `.gexf` en Gephi, podrás trabajar con la columna `topicLabel` para analizar homofilia y asortatividad temática.
+
+### 1. Visualización por tema
+
+- En la pestaña **Appearance**, elige **Nodes > Partition > topicLabel**.
+- Aplica diferentes colores a cada valor (`tech`, `art`, `politics`, etc.).
+- Esto te permitirá ver comunidades temáticas visualmente.
+
+### 2. Cálculo de asortatividad
+
+- Ve a **Statistics > Assortativity**.
+- Elige `topicLabel` como atributo categórico.
+- Ejecuta el cálculo para obtener el **coeficiente de homofilia** temática:
+  - Valor cercano a **1**: usuarios de temas similares se conectan entre sí.
+  - Valor cercano a **0**: las conexiones no dependen del tema.
+  - Valor negativo: usuarios de temas distintos tienden a conectarse.
+
+### 3. Filtrado o agrupamiento
+
+- Puedes usar **Filters > Attributes > topicLabel** para seleccionar un subconjunto de nodos de un tema concreto.
+- También puedes exportar por separado subgrafos de cada tema si lo necesitas para análisis comparativo.
+
+Este enfoque te permite estudiar asortatividad dentro de clases semánticas aproximadas sin necesidad de etiquetado manual ni NLP avanzado.
+
