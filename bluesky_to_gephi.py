@@ -8,6 +8,21 @@ from atproto import Client
 import networkx as nx
 from tqdm import tqdm
 
+def extract_topic_label(description):
+    description = description.lower()
+    if any(word in description for word in ["ai", "artificial", "ml", "model", "data", "tech"]):
+        return "tech"
+    elif any(word in description for word in ["art", "design", "illustration", "creative", "music"]):
+        return "art"
+    elif any(word in description for word in ["politics", "activist", "campaign", "gov", "law"]):
+        return "politics"
+    elif any(word in description for word in ["writer", "poet", "book", "novel", "author"]):
+        return "literature"
+    elif any(word in description for word in ["climate", "environment", "nature", "eco", "green"]):
+        return "climate"
+    else:
+        return "other"
+
 def fetch_paginated_follows(client, target_user, direction='follows', limit_total=None, delay=0.0):
     results = []
     cursor = None
@@ -49,7 +64,11 @@ def add_user_node(G, user_data, direction, source_user, edge_list):
         G.add_node(user_handle,
                    displayName=user_data.display_name or "",
                    description=user_data.description or "",
-                   avatar=user_data.avatar or "")
+                   avatar=user_data.avatar or "",
+                   followersCount=getattr(user_data, "followers_count", 0),
+                   followsCount=getattr(user_data, "follows_count", 0),
+                   postsCount=getattr(user_data, "posts_count", 0),
+                   topicLabel=extract_topic_label(user_data.description or ""))
 
     if direction == 'follows':
         G.add_edge(source_user, user_handle)
@@ -61,13 +80,18 @@ def add_user_node(G, user_data, direction, source_user, edge_list):
 def export_to_csv(G, edge_list, node_file, edge_file):
     with open(node_file, 'w', newline='', encoding='utf-8') as f_nodes:
         writer = csv.writer(f_nodes)
-        writer.writerow(['handle', 'displayName', 'description', 'avatar'])
+        writer.writerow(['handle', 'displayName', 'description', 'avatar',
+                         'followersCount', 'followsCount', 'postsCount', 'topicLabel'])
         for node, attrs in G.nodes(data=True):
             writer.writerow([
                 node,
                 attrs.get('displayName', ''),
                 attrs.get('description', ''),
-                attrs.get('avatar', '')
+                attrs.get('avatar', ''),
+                attrs.get('followersCount', 0),
+                attrs.get('followsCount', 0),
+                attrs.get('postsCount', 0),
+                attrs.get('topicLabel', 'other')
             ])
 
     with open(edge_file, 'w', newline='', encoding='utf-8') as f_edges:
@@ -91,7 +115,14 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
     queue = deque()
     queue.append((target_user, 1))
 
-    G.add_node(target_user, displayName=target_user, description="", avatar="")
+    G.add_node(target_user,
+               displayName=target_user,
+               description="",
+               avatar="",
+               followersCount=0,
+               followsCount=0,
+               postsCount=0,
+               topicLabel="other")
 
     progress_users = tqdm(desc="Usuarios explorados", unit="usuarios")
 
