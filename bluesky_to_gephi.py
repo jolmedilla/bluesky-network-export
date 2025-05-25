@@ -4,24 +4,36 @@ import csv
 import time
 from collections import deque
 
+import spacy
 from atproto import Client
 import networkx as nx
 from tqdm import tqdm
 
+# Cargar modelo spaCy
+nlp = spacy.load("en_core_web_sm")
+
+# Listas de términos por categoría
+TECH = {"ai", "artificial intelligence", "machine learning", "data", "technology", "model"}
+ART = {"art", "illustration", "creative", "music", "painting"}
+POLITICS = {"politics", "government", "activism", "law"}
+LIT = {"writer", "book", "literature", "author"}
+CLIMATE = {"climate", "environment", "eco", "green"}
+
 def extract_topic_label(description):
-    description = description.lower()
-    if any(word in description for word in ["ai", "artificial", "ml", "model", "data", "tech"]):
+    doc = nlp(description.lower())
+    lemmas = set([token.lemma_ for token in doc if not token.is_stop])
+
+    if lemmas & TECH:
         return "tech"
-    elif any(word in description for word in ["art", "design", "illustration", "creative", "music"]):
+    elif lemmas & ART:
         return "art"
-    elif any(word in description for word in ["politics", "activist", "campaign", "gov", "law"]):
+    elif lemmas & POLITICS:
         return "politics"
-    elif any(word in description for word in ["writer", "poet", "book", "novel", "author"]):
+    elif lemmas & LIT:
         return "literature"
-    elif any(word in description for word in ["climate", "environment", "nature", "eco", "green"]):
+    elif lemmas & CLIMATE:
         return "climate"
-    else:
-        return "other"
+    return "other"
 
 def fetch_paginated_follows(client, target_user, direction='follows', limit_total=None, delay=0.0):
     results = []
