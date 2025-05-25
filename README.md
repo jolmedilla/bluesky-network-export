@@ -70,7 +70,27 @@ python bluesky_to_gephi_extended.py \
 MIT
 
 
+
+
+## Cómo se detecta el tema (`topicLabel`) usando NLP
+
+Esta versión usa `spaCy` para realizar análisis semántico básico de la biografía de cada usuario.
+
+1. Se tokeniza y lematiza el texto.
+2. Se eliminan palabras vacías.
+3. Se compara con listas de lemas representativos por tema.
+
+**Temas detectados automáticamente:**
+
+- `tech`: inteligencia artificial, machine learning, datos, tecnología
+- `art`: arte, ilustración, música, diseño
+- `politics`: política, activismo, gobierno
+- `literature`: escritura, libros, autores
+- `climate`: medio ambiente, ecología, sostenibilidad
+- `other`: cuando no se detecta un tema predominante
+
 ## Cómo usar `topicLabel` en Gephi
+
 
 Una vez importes el archivo `salida_nodes.csv` o el `.gexf` en Gephi, podrás trabajar con la columna `topicLabel` para analizar homofilia y asortatividad temática.
 
