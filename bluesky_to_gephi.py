@@ -1,4 +1,24 @@
 
+def compute_assortativity(G):
+    print("\n[*] Cálculo de asortatividad:")
+    try:
+        r_deg = nx.degree_assortativity_coefficient(G)
+        print(f"- Asortatividad por grado: {r_deg:.4f}")
+    except Exception as e:
+        print(f"  [!] Error en grado: {e}")
+    for attr in ["followersCount", "followsCount", "postsCount"]:
+        try:
+            r = nx.numeric_assortativity_coefficient(G, attr)
+            print(f"- Asortatividad por {attr}: {r:.4f}")
+        except Exception as e:
+            print(f"  [!] Error en {attr}: {e}")
+    try:
+        r_cat = nx.attribute_assortativity_coefficient(G, "topicLabel")
+        print(f"- Asortatividad categórica por topicLabel: {r_cat:.4f}")
+    except Exception as e:
+        print(f"  [!] Error en topicLabel: {e}")
+
+
 import argparse
 import csv
 import time
@@ -188,6 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--depth", type=int, default=2, help="Profundidad máxima de exploración")
     parser.add_argument("--delay", type=float, default=0.0, help="Tiempo (en segundos) entre usuarios y páginas (ej: 1.5)")
 
+    parser.add_argument("--assortativity", action="store_true", help="Calcula coeficientes de asortatividad")
     args = parser.parse_args()
 
     fetch_full_network(
@@ -199,3 +220,5 @@ if __name__ == "__main__":
         depth=args.depth,
         delay=args.delay
     )
+    if args.assortativity:
+        compute_assortativity(G)
