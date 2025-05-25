@@ -1,0 +1,4 @@
+atproto>=0.0.35
+networkx>=3.0
+tqdm>=4.64
+spacy>=3.0
