@@ -137,9 +137,11 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
     print("[*] Autenticando...")
     client.login(handle, app_password)
 
-    print(f"[*] Resolviendo DID de {target_user}...")
-    did = client.com.atproto.identity.resolve_handle(target_user).did
+    if target_user.startswith("@"):
+        target_user = target_user[1:]
 
+    print(f"[*] Resolviendo DID de {target_user}...")
+    did = client.com.atproto.identity.resolve_handle({"handle": target_user}).did
     G = nx.DiGraph()
     edge_list = []
 
