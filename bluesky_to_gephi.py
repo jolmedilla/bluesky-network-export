@@ -1,28 +1,8 @@
-
-def compute_assortativity(G):
-    print("\n[*] Cálculo de asortatividad:")
-    try:
-        r_deg = nx.degree_assortativity_coefficient(G)
-        print(f"- Asortatividad por grado: {r_deg:.4f}")
-    except Exception as e:
-        print(f"  [!] Error en grado: {e}")
-    for attr in ["followersCount", "followsCount", "postsCount"]:
-        try:
-            r = nx.numeric_assortativity_coefficient(G, attr)
-            print(f"- Asortatividad por {attr}: {r:.4f}")
-        except Exception as e:
-            print(f"  [!] Error en {attr}: {e}")
-    try:
-        r_cat = nx.attribute_assortativity_coefficient(G, "topicLabel")
-        print(f"- Asortatividad categórica por topicLabel: {r_cat:.4f}")
-    except Exception as e:
-        print(f"  [!] Error en topicLabel: {e}")
-
-
 import argparse
 import csv
 import time
 from collections import deque
+import re
 
 import spacy
 from atproto import Client
@@ -94,8 +74,8 @@ def add_user_node(G, user_data, direction, source_user, edge_list):
     user_handle = user_data.handle
     if user_handle not in G:
         G.add_node(user_handle,
-                   displayName=user_data.display_name or "",
-                   description=user_data.description or "",
+                   displayName=clean_text(user_data.display_name or ""),
+                   description=clean_text(user_data.description or ""),
                    avatar=user_data.avatar or "",
                    followersCount=getattr(user_data, "followers_count", 0),
                    followsCount=getattr(user_data, "follows_count", 0),
@@ -117,8 +97,8 @@ def export_to_csv(G, edge_list, node_file, edge_file):
         for node, attrs in G.nodes(data=True):
             writer.writerow([
                 node,
-                attrs.get('displayName', ''),
-                attrs.get('description', ''),
+                clean_text(attrs.get('displayName', '')),
+                clean_text(attrs.get('description', '')),
                 attrs.get('avatar', ''),
                 attrs.get('followersCount', 0),
                 attrs.get('followsCount', 0),
@@ -132,6 +112,29 @@ def export_to_csv(G, edge_list, node_file, edge_file):
         for edge in edge_list:
             writer.writerow(edge)
 
+def compute_assortativity(G):
+    print("\n[*] Cálculo de asortatividad:")
+    try:
+        r_deg = nx.degree_assortativity_coefficient(G)
+        print(f"- Asortatividad por grado: {r_deg:.4f}")
+    except Exception as e:
+        print(f"  [!] Error en grado: {e}")
+    for attr in ["followersCount", "followsCount", "postsCount"]:
+        try:
+            r = nx.numeric_assortativity_coefficient(G, attr)
+            print(f"- Asortatividad por {attr}: {r:.4f}")
+        except Exception as e:
+            print(f"  [!] Error en {attr}: {e}")
+    try:
+        r_cat = nx.attribute_assortativity_coefficient(G, "topicLabel")
+        print(f"- Asortatividad categórica por topicLabel: {r_cat:.4f}")
+    except Exception as e:
+        print(f"  [!] Error en topicLabel: {e}")
+
+def clean_text(text):
+    # Elimina caracteres de control ilegales en XML (excepto salto de línea y tab)
+    return re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
+
 def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky_graph", limit=100, depth=2, delay=0.0):
     client = Client()
     print("[*] Autenticando...")
@@ -140,8 +143,8 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
     if target_user.startswith("@"):
         target_user = target_user[1:]
 
-    print(f"[*] Resolviendo DID de {target_user}...")
-    did = client.com.atproto.identity.resolve_handle({"handle": target_user}).did
+    client.com.atproto.identity.resolve_handle({"handle": target_user})
+
     G = nx.DiGraph()
     edge_list = []
 
@@ -150,7 +153,7 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
     queue.append((target_user, 1))
 
     G.add_node(target_user,
-               displayName=target_user,
+               displayName=clean_text(target_user),
                description="",
                avatar="",
                followersCount=0,
@@ -174,12 +177,16 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
         print(f"[{current_depth}] Explorando: {current_user}")
         follows = fetch_paginated_follows(client, current_user, 'follows', limit, delay)
         for follow in follows:
+            follow.display_name = clean_text(follow.display_name)
+            follow.description = clean_text(follow.description)
             add_user_node(G, follow, 'follows', current_user, edge_list)
             if current_depth < depth:
                 queue.append((follow.handle, current_depth + 1))
 
         followers = fetch_paginated_follows(client, current_user, 'followers', limit, delay)
         for follower in followers:
+            follower.display_name = clean_text(follower.display_name)
+            follower.description = clean_text(follower.description)
             add_user_node(G, follower, 'followers', current_user, edge_list)
             if current_depth < depth:
                 queue.append((follower.handle, current_depth + 1))
@@ -199,6 +206,7 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
     export_to_csv(G, edge_list, node_csv, edge_csv)
 
     print("[✓] Finalizado.")
+    return G  # Devuelve el grafo
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Descarga red social de Bluesky y exporta a Gephi + CSV.")
@@ -213,7 +221,7 @@ if __name__ == "__main__":
     parser.add_argument("--assortativity", action="store_true", help="Calcula coeficientes de asortatividad")
     args = parser.parse_args()
 
-    fetch_full_network(
+    G = fetch_full_network(  # Captura el grafo devuelto
         handle=args.handle,
         app_password=args.app_password,
         target_user=args.target,
@@ -223,4 +231,4 @@ if __name__ == "__main__":
         delay=args.delay
     )
     if args.assortativity:
-        compute_assortativity(G)
+        compute_assortativity(G)  # Ahora G está definido
