@@ -209,26 +209,73 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
     return G  # Devuelve el grafo
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Descarga red social de Bluesky y exporta a Gephi + CSV.")
-    parser.add_argument("--handle", required=True, help="Tu handle de Bluesky (ej. tuusuario.bsky.social)")
-    parser.add_argument("--app-password", required=True, help="Contraseña de aplicación de Bluesky")
-    parser.add_argument("--target", required=True, help="Usuario objetivo (ej. @bob.bsky.social)")
-    parser.add_argument("--output-prefix", default="bluesky_graph", help="Prefijo de los archivos de salida")
-    parser.add_argument("--limit", type=int, default=100, help="Límite máximo de nodos por tipo por usuario")
-    parser.add_argument("--depth", type=int, default=2, help="Profundidad máxima de exploración")
-    parser.add_argument("--delay", type=float, default=0.0, help="Tiempo (en segundos) entre usuarios y páginas (ej: 1.5)")
+    parser = argparse.ArgumentParser(description="Herramienta para gestionar redes sociales de Bluesky y exportar datos.")
+    subparsers = parser.add_subparsers(dest="command", required=True, help="Comando a ejecutar")
 
-    parser.add_argument("--assortativity", action="store_true", help="Calcula coeficientes de asortatividad")
+    # Comando export
+    export_parser = subparsers.add_parser("export", help="Exporta la red social a GEXF y CSV.")
+    export_parser.add_argument("--handle", required=True, help="Tu handle de Bluesky (ej. tuusuario.bsky.social)")
+    export_parser.add_argument("--app-password", required=True, help="Contraseña de aplicación de Bluesky")
+    export_parser.add_argument("--target", required=True, help="Usuario objetivo (ej. @bob.bsky.social)")
+    export_parser.add_argument("--output-prefix", default="bluesky_graph", help="Prefijo de los archivos de salida")
+    export_parser.add_argument("--limit", type=int, default=100, help="Límite máximo de nodos por tipo por usuario")
+    export_parser.add_argument("--depth", type=int, default=2, help="Profundidad máxima de exploración")
+    export_parser.add_argument("--delay", type=float, default=0.0, help="Tiempo (en segundos) entre usuarios y páginas (ej: 1.5)")
+
+    # Comando clean
+    clean_parser = subparsers.add_parser("clean", help="Limpia los ficheros GEXF y CSV existentes.")
+    clean_parser.add_argument("--input-prefix", required=True, help="Prefijo de los archivos a limpiar")
+
+    # Comando assortativity
+    assortativity_parser = subparsers.add_parser("assortativity", help="Calcula la asortatividad de un grafo existente.")
+    assortativity_parser.add_argument("--input-prefix", required=True, help="Prefijo de los archivos de entrada")
+
     args = parser.parse_args()
 
-    G = fetch_full_network(  # Captura el grafo devuelto
-        handle=args.handle,
-        app_password=args.app_password,
-        target_user=args.target,
-        output_prefix=args.output_prefix,
-        limit=args.limit,
-        depth=args.depth,
-        delay=args.delay
-    )
-    if args.assortativity:
-        compute_assortativity(G)  # Ahora G está definido
+    if args.command == "export":
+        G = fetch_full_network(
+            handle=args.handle,
+            app_password=args.app_password,
+            target_user=args.target,
+            output_prefix=args.output_prefix,
+            limit=args.limit,
+            depth=args.depth,
+            delay=args.delay
+        )
+
+    elif args.command == "clean":
+        node_file = f"{args.input_prefix}_nodes.csv"
+        edge_file = f"{args.input_prefix}_edges.csv"
+        gexf_file = f"{args.input_prefix}.gexf"
+
+        print(f"[*] Limpiando archivo {node_file}...")
+        with open(node_file, 'r', encoding='utf-8') as f:
+            rows = [row for row in csv.reader(f)]
+        with open(node_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(rows[0])  # Escribe el encabezado
+            for row in rows[1:]:
+                writer.writerow([clean_text(cell) for cell in row])
+
+        print(f"[*] Limpiando archivo {edge_file}...")
+        with open(edge_file, 'r', encoding='utf-8') as f:
+            rows = [row for row in csv.reader(f)]
+        with open(edge_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)  # No se necesita limpieza específica para edges
+
+        print(f"[*] Limpiando archivo {gexf_file}...")
+        with open(gexf_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        with open(gexf_file, 'w', encoding='utf-8') as f:
+            f.write(clean_text(content))
+
+        print("[✓] Archivos limpiados correctamente.")
+
+    elif args.command == "assortativity":
+        gexf_file = f"{args.input_prefix}.gexf"
+        print(f"[*] Cargando grafo desde {gexf_file}...")
+        G = nx.read_gexf(gexf_file)
+        compute_assortativity(G)
+
+        print("[✓] Cálculo de asortatividad completado.")
