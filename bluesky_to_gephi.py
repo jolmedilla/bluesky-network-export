@@ -1,28 +1,28 @@
 import argparse
 import csv
 import time
-from collections import deque
+import os
 import re
-
+import networkx as nx
 import spacy
 from atproto import Client
-import networkx as nx
 from tqdm import tqdm
+from collections import deque
 
-# Cargar modelo spaCy
 nlp = spacy.load("en_core_web_sm")
 
-# Listas de términos por categoría
 TECH = {"ai", "artificial intelligence", "machine learning", "data", "technology", "model"}
 ART = {"art", "illustration", "creative", "music", "painting"}
 POLITICS = {"politics", "government", "activism", "law"}
 LIT = {"writer", "book", "literature", "author"}
 CLIMATE = {"climate", "environment", "eco", "green"}
 
+def clean_text(text):
+    return re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
+
 def extract_topic_label(description):
     doc = nlp(description.lower())
     lemmas = set([token.lemma_ for token in doc if not token.is_stop])
-
     if lemmas & TECH:
         return "tech"
     elif lemmas & ART:
@@ -34,83 +34,6 @@ def extract_topic_label(description):
     elif lemmas & CLIMATE:
         return "climate"
     return "other"
-
-def fetch_paginated_follows(client, target_user, direction='follows', limit_total=None, delay=0.0):
-    results = []
-    cursor = None
-    limit = 100
-
-    with tqdm(desc=f"{direction.capitalize()} de {target_user}", unit="usuarios", leave=False) as pbar:
-        while True:
-            params = {'actor': target_user, 'limit': limit}
-            if cursor:
-                params['cursor'] = cursor
-
-            try:
-                if direction == 'follows':
-                    response = client.app.bsky.graph.get_follows(params)
-                    page_data = response.follows
-                    cursor = response.cursor
-                else:
-                    response = client.app.bsky.graph.get_followers(params)
-                    page_data = response.followers
-                    cursor = response.cursor
-            except Exception as e:
-                print(f"[!] Error al traer {direction} de {target_user}: {e}")
-                break
-
-            results.extend(page_data)
-            pbar.update(len(page_data))
-
-            if not cursor or (limit_total and len(results) >= limit_total):
-                break
-
-            if delay > 0:
-                time.sleep(delay)
-
-    return results[:limit_total] if limit_total else results
-
-def add_user_node(G, user_data, direction, source_user, edge_list):
-    user_handle = user_data.handle
-    if user_handle not in G:
-        G.add_node(user_handle,
-                   displayName=clean_text(user_data.display_name or ""),
-                   description=clean_text(user_data.description or ""),
-                   avatar=user_data.avatar or "",
-                   followersCount=getattr(user_data, "followers_count", 0),
-                   followsCount=getattr(user_data, "follows_count", 0),
-                   postsCount=getattr(user_data, "posts_count", 0),
-                   topicLabel=extract_topic_label(user_data.description or ""))
-
-    if direction == 'follows':
-        G.add_edge(source_user, user_handle)
-        edge_list.append((source_user, user_handle, 'follows'))
-    else:
-        G.add_edge(user_handle, source_user)
-        edge_list.append((user_handle, source_user, 'followed_by'))
-
-def export_to_csv(G, edge_list, node_file, edge_file):
-    with open(node_file, 'w', newline='', encoding='utf-8') as f_nodes:
-        writer = csv.writer(f_nodes)
-        writer.writerow(['handle', 'displayName', 'description', 'avatar',
-                         'followersCount', 'followsCount', 'postsCount', 'topicLabel'])
-        for node, attrs in G.nodes(data=True):
-            writer.writerow([
-                node,
-                clean_text(attrs.get('displayName', '')),
-                clean_text(attrs.get('description', '')),
-                attrs.get('avatar', ''),
-                attrs.get('followersCount', 0),
-                attrs.get('followsCount', 0),
-                attrs.get('postsCount', 0),
-                attrs.get('topicLabel', 'other')
-            ])
-
-    with open(edge_file, 'w', newline='', encoding='utf-8') as f_edges:
-        writer = csv.writer(f_edges)
-        writer.writerow(['source', 'target', 'relation'])
-        for edge in edge_list:
-            writer.writerow(edge)
 
 def compute_assortativity(G):
     print("\n[*] Cálculo de asortatividad:")
@@ -131,10 +54,6 @@ def compute_assortativity(G):
     except Exception as e:
         print(f"  [!] Error en topicLabel: {e}")
 
-def clean_text(text):
-    # Elimina caracteres de control ilegales en XML (excepto salto de línea y tab)
-    return re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
-
 def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky_graph", limit=100, depth=2, delay=0.0):
     client = Client()
     print("[*] Autenticando...")
@@ -143,17 +62,17 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
     if target_user.startswith("@"):
         target_user = target_user[1:]
 
+    print(f"[*] Resolviendo DID de {target_user}...")
     client.com.atproto.identity.resolve_handle({"handle": target_user})
 
     G = nx.DiGraph()
     edge_list = []
-
     visited = set()
     queue = deque()
     queue.append((target_user, 1))
 
     G.add_node(target_user,
-               displayName=clean_text(target_user),
+               displayName=target_user,
                description="",
                avatar="",
                followersCount=0,
@@ -162,73 +81,124 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
                topicLabel="other")
 
     progress_users = tqdm(desc="Usuarios explorados", unit="usuarios")
-
     while queue:
         current_user, current_depth = queue.popleft()
         if current_user in visited:
             continue
         visited.add(current_user)
-
         progress_users.update(1)
-
         if current_user != target_user and delay > 0:
             time.sleep(delay)
-
-        print(f"[{current_depth}] Explorando: {current_user}")
-        follows = fetch_paginated_follows(client, current_user, 'follows', limit, delay)
-        for follow in follows:
-            follow.display_name = clean_text(follow.display_name)
-            follow.description = clean_text(follow.description)
-            add_user_node(G, follow, 'follows', current_user, edge_list)
-            if current_depth < depth:
-                queue.append((follow.handle, current_depth + 1))
-
-        followers = fetch_paginated_follows(client, current_user, 'followers', limit, delay)
-        for follower in followers:
-            follower.display_name = clean_text(follower.display_name)
-            follower.description = clean_text(follower.description)
-            add_user_node(G, follower, 'followers', current_user, edge_list)
-            if current_depth < depth:
-                queue.append((follower.handle, current_depth + 1))
-
+        for direction in ['follows', 'followers']:
+            results = fetch_paginated_follows(client, current_user, direction, limit, delay)
+            for user in results:
+                user_handle = user.handle
+                if user_handle not in G:
+                    G.add_node(user_handle,
+                        displayName=clean_text(user.display_name or ""),
+                        description=clean_text(user.description or ""),
+                        avatar=user.avatar or "",
+                        followersCount=getattr(user, "followers_count", 0),
+                        followsCount=getattr(user, "follows_count", 0),
+                        postsCount=getattr(user, "posts_count", 0),
+                        topicLabel=extract_topic_label(user.description or ""))
+                if direction == 'follows':
+                    G.add_edge(current_user, user_handle)
+                else:
+                    G.add_edge(user_handle, current_user)
     progress_users.close()
-
     print(f"[*] Total nodos: {len(G.nodes())}, aristas: {len(G.edges())}")
+    return G
 
-    gexf_file = f"{output_prefix}.gexf"
-    node_csv = f"{output_prefix}_nodes.csv"
-    edge_csv = f"{output_prefix}_edges.csv"
+def fetch_paginated_follows(client, target_user, direction='follows', limit_total=None, delay=0.0):
+    results = []
+    cursor = None
+    limit = 100
+    with tqdm(desc=f"{direction.capitalize()} de {target_user}", unit="usuarios", leave=False) as pbar:
+        while True:
+            params = {'actor': target_user, 'limit': limit}
+            if cursor:
+                params['cursor'] = cursor
+            try:
+                response = getattr(client.app.bsky.graph, f"get_{direction}")(params)
+                page_data = getattr(response, direction)
+                cursor = response.cursor
+            except Exception as e:
+                print(f"[!] Error al traer {direction} de {target_user}: {e}")
+                break
+            results.extend(page_data)
+            pbar.update(len(page_data))
+            if not cursor or (limit_total and len(results) >= limit_total):
+                break
+            if delay > 0:
+                time.sleep(delay)
+    return results[:limit_total] if limit_total else results
 
-    print(f"[*] Guardando grafo en {gexf_file}...")
+def export_graph(G, prefix):
+    gexf_file = f"{prefix}.gexf"
+    node_csv = f"{prefix}_nodes.csv"
+    edge_csv = f"{prefix}_edges.csv"
+
+    print(f"[*] Exportando a {gexf_file}, {node_csv}, {edge_csv}")
     nx.write_gexf(G, gexf_file)
 
-    print(f"[*] Exportando nodos a {node_csv} y relaciones a {edge_csv}...")
-    export_to_csv(G, edge_list, node_csv, edge_csv)
+    with open(node_csv, "w", newline='', encoding='utf-8') as fn:
+        writer = csv.writer(fn)
+        writer.writerow(['handle', 'displayName', 'description', 'avatar',
+                         'followersCount', 'followsCount', 'postsCount', 'topicLabel'])
+        for n, d in G.nodes(data=True):
+            writer.writerow([
+                n,
+                clean_text(d.get("displayName", "")),
+                clean_text(d.get("description", "")),
+                d.get("avatar", ""),
+                d.get("followersCount", 0),
+                d.get("followsCount", 0),
+                d.get("postsCount", 0),
+                d.get("topicLabel", "other")
+            ])
+    with open(edge_csv, "w", newline='', encoding='utf-8') as fe:
+        writer = csv.writer(fe)
+        writer.writerow(["source", "target"])
+        for s, t in G.edges():
+            writer.writerow([s, t])
 
-    print("[✓] Finalizado.")
-    return G  # Devuelve el grafo
+def clean_existing_files(prefix):
+    files = [f"{prefix}.gexf", f"{prefix}_nodes.csv", f"{prefix}_edges.csv"]
+    for file in files:
+        if os.path.exists(file):
+            print(f"[*] Limpiando archivo: {file}")
+            with open(file, "r", encoding="utf-8") as f:
+                content = f.read()
+            cleaned = clean_text(content)
+            with open(file, "w", encoding="utf-8") as f:
+                f.write(cleaned)
+        else:
+            print(f"[!] Archivo no encontrado: {file}")
+
+def load_graph_from_gexf(prefix):
+    path = f"{prefix}.gexf"
+    print(f"[*] Cargando grafo desde {path}")
+    return nx.read_gexf(path)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Herramienta para gestionar redes sociales de Bluesky y exportar datos.")
-    subparsers = parser.add_subparsers(dest="command", required=True, help="Comando a ejecutar")
+    parser = argparse.ArgumentParser(description="Bluesky Network Export Tool")
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Comando export
-    export_parser = subparsers.add_parser("export", help="Exporta la red social a GEXF y CSV.")
-    export_parser.add_argument("--handle", required=True, help="Tu handle de Bluesky (ej. tuusuario.bsky.social)")
-    export_parser.add_argument("--app-password", required=True, help="Contraseña de aplicación de Bluesky")
-    export_parser.add_argument("--target", required=True, help="Usuario objetivo (ej. @bob.bsky.social)")
-    export_parser.add_argument("--output-prefix", default="bluesky_graph", help="Prefijo de los archivos de salida")
-    export_parser.add_argument("--limit", type=int, default=100, help="Límite máximo de nodos por tipo por usuario")
-    export_parser.add_argument("--depth", type=int, default=2, help="Profundidad máxima de exploración")
-    export_parser.add_argument("--delay", type=float, default=0.0, help="Tiempo (en segundos) entre usuarios y páginas (ej: 1.5)")
+    exp = subparsers.add_parser("export")
+    exp.add_argument("--handle", required=True)
+    exp.add_argument("--app-password", required=True)
+    exp.add_argument("--target", required=True)
+    exp.add_argument("--output-prefix", default="bluesky_graph")
+    exp.add_argument("--limit", type=int, default=100)
+    exp.add_argument("--depth", type=int, default=2)
+    exp.add_argument("--delay", type=float, default=0.0)
 
-    # Comando clean
-    clean_parser = subparsers.add_parser("clean", help="Limpia los ficheros GEXF y CSV existentes.")
-    clean_parser.add_argument("--input-prefix", required=True, help="Prefijo de los archivos a limpiar")
+    clean = subparsers.add_parser("clean")
+    clean.add_argument("--input-prefix", required=True)
 
-    # Comando assortativity
-    assortativity_parser = subparsers.add_parser("assortativity", help="Calcula la asortatividad de un grafo existente.")
-    assortativity_parser.add_argument("--input-prefix", required=True, help="Prefijo de los archivos de entrada")
+    assort = subparsers.add_parser("assortativity")
+    assort.add_argument("--input-prefix", required=True)
 
     args = parser.parse_args()
 
@@ -242,40 +212,11 @@ if __name__ == "__main__":
             depth=args.depth,
             delay=args.delay
         )
+        export_graph(G, args.output_prefix)
 
     elif args.command == "clean":
-        node_file = f"{args.input_prefix}_nodes.csv"
-        edge_file = f"{args.input_prefix}_edges.csv"
-        gexf_file = f"{args.input_prefix}.gexf"
-
-        print(f"[*] Limpiando archivo {node_file}...")
-        with open(node_file, 'r', encoding='utf-8') as f:
-            rows = [row for row in csv.reader(f)]
-        with open(node_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(rows[0])  # Escribe el encabezado
-            for row in rows[1:]:
-                writer.writerow([clean_text(cell) for cell in row])
-
-        print(f"[*] Limpiando archivo {edge_file}...")
-        with open(edge_file, 'r', encoding='utf-8') as f:
-            rows = [row for row in csv.reader(f)]
-        with open(edge_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerows(rows)  # No se necesita limpieza específica para edges
-
-        print(f"[*] Limpiando archivo {gexf_file}...")
-        with open(gexf_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-        with open(gexf_file, 'w', encoding='utf-8') as f:
-            f.write(clean_text(content))
-
-        print("[✓] Archivos limpiados correctamente.")
+        clean_existing_files(args.input_prefix)
 
     elif args.command == "assortativity":
-        gexf_file = f"{args.input_prefix}.gexf"
-        print(f"[*] Cargando grafo desde {gexf_file}...")
-        G = nx.read_gexf(gexf_file)
+        G = load_graph_from_gexf(args.input_prefix)
         compute_assortativity(G)
-
-        print("[✓] Cálculo de asortatividad completado.")
