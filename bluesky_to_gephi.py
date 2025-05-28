@@ -54,7 +54,7 @@ def compute_assortativity(G):
     except Exception as e:
         print(f"  [!] Error en topicLabel: {e}")
 
-def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky_graph", limit=100, depth=2, delay=0.0):
+def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky_graph", limit=100, depth=2, delay=0.0, max_nodes=None):
     client = Client()
     print("[*] Autenticando...")
     client.login(handle, app_password)
@@ -66,7 +66,6 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
     client.com.atproto.identity.resolve_handle({"handle": target_user})
 
     G = nx.DiGraph()
-    edge_list = []
     visited = set()
     queue = deque()
     queue.append((target_user, 1))
@@ -94,6 +93,8 @@ def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky
             for user in results:
                 user_handle = user.handle
                 if user_handle not in G:
+                    if max_nodes and len(G.nodes) >= max_nodes:
+                        break
                     G.add_node(user_handle,
                         displayName=clean_text(user.display_name or ""),
                         description=clean_text(user.description or ""),
@@ -190,9 +191,11 @@ if __name__ == "__main__":
     exp.add_argument("--app-password", required=True)
     exp.add_argument("--target", required=True)
     exp.add_argument("--output-prefix", default="bluesky_graph")
-    exp.add_argument("--limit", type=int, default=100)
+    exp.add_argument("--limit", type=int, default=None, help="Máximo de seguidores/seguidos por usuario (sin límite si se omite)")
     exp.add_argument("--depth", type=int, default=2)
     exp.add_argument("--delay", type=float, default=0.0)
+    exp.add_argument("--max-nodes", type=int, default=None, help="Número máximo total de nodos a recolectar")
+    exp.add_argument("--assortativity", action="store_true", help="Calcular asortatividad")
 
     clean = subparsers.add_parser("clean")
     clean.add_argument("--input-prefix", required=True)
@@ -210,9 +213,13 @@ if __name__ == "__main__":
             output_prefix=args.output_prefix,
             limit=args.limit,
             depth=args.depth,
-            delay=args.delay
+            delay=args.delay,
+            max_nodes=args.max_nodes,
         )
         export_graph(G, args.output_prefix)
+
+        if hasattr(args, 'assortativity') and args.assortativity:
+            compute_assortativity(G)
 
     elif args.command == "clean":
         clean_existing_files(args.input_prefix)
