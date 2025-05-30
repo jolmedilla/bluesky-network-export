@@ -1,229 +1,150 @@
 import argparse
-import csv
-import time
-import os
-import re
+import pandas as pd
 import networkx as nx
-import spacy
 from atproto import Client
-from tqdm import tqdm
-from collections import deque
+import time
 
-nlp = spacy.load("en_core_web_sm")
-
-TECH = {"ai", "artificial intelligence", "machine learning", "data", "technology", "model"}
-ART = {"art", "illustration", "creative", "music", "painting"}
-POLITICS = {"politics", "government", "activism", "law"}
-LIT = {"writer", "book", "literature", "author"}
-CLIMATE = {"climate", "environment", "eco", "green"}
-
-def clean_text(text):
-    return re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
-
-def extract_topic_label(description):
-    doc = nlp(description.lower())
-    lemmas = set([token.lemma_ for token in doc if not token.is_stop])
-    if lemmas & TECH:
-        return "tech"
-    elif lemmas & ART:
-        return "art"
-    elif lemmas & POLITICS:
-        return "politics"
-    elif lemmas & LIT:
-        return "literature"
-    elif lemmas & CLIMATE:
-        return "climate"
-    return "other"
-
-def compute_assortativity(G):
-    print("\n[*] Cálculo de asortatividad:")
-    try:
-        r_deg = nx.degree_assortativity_coefficient(G)
-        print(f"- Asortatividad por grado: {r_deg:.4f}")
-    except Exception as e:
-        print(f"  [!] Error en grado: {e}")
-    for attr in ["followersCount", "followsCount", "postsCount"]:
+def fetch_posts_and_replies(client, handles, limit_per_user, delay=1.0, max_replies_per_post=None):
+    all_posts = []
+    seen_uris = set()
+    for handle in handles:
+        print(f"📥 Descargando posts de: {handle}")
         try:
-            r = nx.numeric_assortativity_coefficient(G, attr)
-            print(f"- Asortatividad por {attr}: {r:.4f}")
+            feed = client.app.bsky.feed.get_author_feed({'actor': handle, 'limit': limit_per_user})
+            posts = feed.feed
+            for item in posts:
+                post_data = item.post
+                post_uri = post_data.uri
+                if post_uri in seen_uris:
+                    continue
+                seen_uris.add(post_uri)
+
+                main_post = {
+                    'id': post_data.uri.split("/")[-1],
+                    'date': post_data.record.created_at,
+                    'name': handle,
+                    'username': handle,
+                    'text': post_data.record.text,
+                    'url': f"https://bsky.app/profile/{handle}/post/{post_data.uri.split('/')[-1]}",
+                    'referenced_post_id': post_data.record.reply.parent.uri.split("/")[-1] if post_data.record.reply else None,
+                    'referenced_username': post_data.record.reply.parent.uri.split("/")[2] if post_data.record.reply else None,
+                    'referenced_post_type': 'replied_to' if post_data.record.reply else None,
+                    'referenced_post_url': f"https://bsky.app/profile/{post_data.record.reply.parent.uri.split('/')[2]}/post/{post_data.record.reply.parent.uri.split('/')[-1]}" if post_data.record.reply else None,
+                    'like_count': None,
+                    'reply_count': None,
+                    'repost_count': None,
+                    'links': [],
+                    'alt_texts': []
+                }
+                all_posts.append(main_post)
+
+                # Fetch replies to this post
+                try:
+                    thread = client.app.bsky.feed.get_post_thread({'uri': post_uri})
+                    replies = thread.thread.replies or []
+                    for i, reply_item in enumerate(replies):
+                        if max_replies_per_post is not None and i >= max_replies_per_post:
+                            break
+                        if hasattr(reply_item, 'post'):
+                            reply_post = reply_item.post
+                            reply_uri = reply_post.uri
+                            if reply_uri in seen_uris:
+                                continue
+                            seen_uris.add(reply_uri)
+
+                            author = reply_post.author.handle
+                            reply_data = {
+                                'id': reply_uri.split("/")[-1],
+                                'date': reply_post.record.created_at,
+                                'name': author,
+                                'username': author,
+                                'text': reply_post.record.text,
+                                'url': f"https://bsky.app/profile/{author}/post/{reply_uri.split('/')[-1]}",
+                                'referenced_post_id': post_data.uri.split("/")[-1],
+                                'referenced_username': handle,
+                                'referenced_post_type': 'replied_to',
+                                'referenced_post_url': f"https://bsky.app/profile/{handle}/post/{post_data.uri.split('/')[-1]}",
+                                'like_count': None,
+                                'reply_count': None,
+                                'repost_count': None,
+                                'links': [],
+                                'alt_texts': []
+                            }
+                            all_posts.append(reply_data)
+                except Exception as e:
+                    print(f"⚠️ No se pudieron traer respuestas para {post_uri}: {e}")
+
+                time.sleep(delay)
         except Exception as e:
-            print(f"  [!] Error en {attr}: {e}")
-    try:
-        r_cat = nx.attribute_assortativity_coefficient(G, "topicLabel")
-        print(f"- Asortatividad categórica por topicLabel: {r_cat:.4f}")
-    except Exception as e:
-        print(f"  [!] Error en topicLabel: {e}")
+            print(f"❌ Error al descargar de {handle}: {e}")
+    return all_posts
 
-def fetch_full_network(handle, app_password, target_user, output_prefix="bluesky_graph", limit=100, depth=2, delay=0.0, max_nodes=None):
-    client = Client()
-    print("[*] Autenticando...")
-    client.login(handle, app_password)
 
-    if target_user.startswith("@"):
-        target_user = target_user[1:]
-
-    print(f"[*] Resolviendo DID de {target_user}...")
-    client.com.atproto.identity.resolve_handle({"handle": target_user})
-
+def build_graph(posts):
     G = nx.DiGraph()
-    visited = set()
-    queue = deque()
-    queue.append((target_user, 1))
+    for post in posts:
+        src = post.get("username")
+        tgt = post.get("referenced_username")
+        rel_type = post.get("referenced_post_type")
 
-    G.add_node(target_user,
-               displayName=target_user,
-               description="",
-               avatar="",
-               followersCount=0,
-               followsCount=0,
-               postsCount=0,
-               topicLabel="other")
+        if src:
+            G.add_node(src)
+        if tgt:
+            G.add_node(tgt)
 
-    progress_users = tqdm(desc="Usuarios explorados", unit="usuarios")
-    while queue:
-        current_user, current_depth = queue.popleft()
-        if current_user in visited:
-            continue
-        visited.add(current_user)
-        progress_users.update(1)
-        if current_user != target_user and delay > 0:
-            time.sleep(delay)
-        for direction in ['follows', 'followers']:
-            results = fetch_paginated_follows(client, current_user, direction, limit, delay)
-            for user in results:
-                user_handle = user.handle
-                if user_handle not in G:
-                    if max_nodes and len(G.nodes) >= max_nodes:
-                        break
-                    G.add_node(user_handle,
-                        displayName=clean_text(user.display_name or ""),
-                        description=clean_text(user.description or ""),
-                        avatar=user.avatar or "",
-                        followersCount=getattr(user, "followers_count", 0),
-                        followsCount=getattr(user, "follows_count", 0),
-                        postsCount=getattr(user, "posts_count", 0),
-                        topicLabel=extract_topic_label(user.description or ""))
-                if direction == 'follows':
-                    G.add_edge(current_user, user_handle)
-                else:
-                    G.add_edge(user_handle, current_user)
-    progress_users.close()
-    print(f"[*] Total nodos: {len(G.nodes())}, aristas: {len(G.edges())}")
+        if src and tgt and rel_type:
+            G.add_edge(src, tgt, type=rel_type,
+                       text=post.get("text", "")[:100],
+                       source_post=post.get("url"),
+                       target_post=post.get("referenced_post_url"),
+                       date=str(post.get("date")))
+
+    # Agregar atributos de nodos (conteo de posts como ejemplo)
+    from collections import Counter
+    count_posts = Counter(p['username'] for p in posts if p.get('username'))
+    nx.set_node_attributes(G, count_posts, "post_count")
+
     return G
 
-def fetch_paginated_follows(client, target_user, direction='follows', limit_total=None, delay=0.0):
-    results = []
-    cursor = None
-    limit = 100
-    with tqdm(desc=f"{direction.capitalize()} de {target_user}", unit="usuarios", leave=False) as pbar:
-        while True:
-            params = {'actor': target_user, 'limit': limit}
-            if cursor:
-                params['cursor'] = cursor
-            try:
-                response = getattr(client.app.bsky.graph, f"get_{direction}")(params)
-                page_data = getattr(response, direction)
-                cursor = response.cursor
-            except Exception as e:
-                print(f"[!] Error al traer {direction} de {target_user}: {e}")
-                break
-            results.extend(page_data)
-            pbar.update(len(page_data))
-            if not cursor or (limit_total and len(results) >= limit_total):
-                break
-            if delay > 0:
-                time.sleep(delay)
-    return results[:limit_total] if limit_total else results
+    G = nx.DiGraph()
+    for post in posts:
+        source = post['username']
+        target = post['referenced_username']
+        if source and target:
+            G.add_edge(source, target, type=post['referenced_post_type'])
+    return G
 
-def export_graph(G, prefix):
-    gexf_file = f"{prefix}.gexf"
-    node_csv = f"{prefix}_nodes.csv"
-    edge_csv = f"{prefix}_edges.csv"
-
-    print(f"[*] Exportando a {gexf_file}, {node_csv}, {edge_csv}")
-    nx.write_gexf(G, gexf_file)
-
-    with open(node_csv, "w", newline='', encoding='utf-8') as fn:
-        writer = csv.writer(fn)
-        writer.writerow(['handle', 'displayName', 'description', 'avatar',
-                         'followersCount', 'followsCount', 'postsCount', 'topicLabel'])
-        for n, d in G.nodes(data=True):
-            writer.writerow([
-                n,
-                clean_text(d.get("displayName", "")),
-                clean_text(d.get("description", "")),
-                d.get("avatar", ""),
-                d.get("followersCount", 0),
-                d.get("followsCount", 0),
-                d.get("postsCount", 0),
-                d.get("topicLabel", "other")
-            ])
-    with open(edge_csv, "w", newline='', encoding='utf-8') as fe:
-        writer = csv.writer(fe)
-        writer.writerow(["source", "target"])
-        for s, t in G.edges():
-            writer.writerow([s, t])
-
-def clean_existing_files(prefix):
-    files = [f"{prefix}.gexf", f"{prefix}_nodes.csv", f"{prefix}_edges.csv"]
-    for file in files:
-        if os.path.exists(file):
-            print(f"[*] Limpiando archivo: {file}")
-            with open(file, "r", encoding="utf-8") as f:
-                content = f.read()
-            cleaned = clean_text(content)
-            with open(file, "w", encoding="utf-8") as f:
-                f.write(cleaned)
-        else:
-            print(f"[!] Archivo no encontrado: {file}")
-
-def load_graph_from_gexf(prefix):
-    path = f"{prefix}.gexf"
-    print(f"[*] Cargando grafo desde {path}")
-    return nx.read_gexf(path)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Bluesky Network Export Tool")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    exp = subparsers.add_parser("export")
-    exp.add_argument("--handle", required=True)
-    exp.add_argument("--app-password", required=True)
-    exp.add_argument("--target", required=True)
-    exp.add_argument("--output-prefix", default="bluesky_graph")
-    exp.add_argument("--limit", type=int, default=None, help="Máximo de seguidores/seguidos por usuario (sin límite si se omite)")
-    exp.add_argument("--depth", type=int, default=2)
-    exp.add_argument("--delay", type=float, default=0.0)
-    exp.add_argument("--max-nodes", type=int, default=None, help="Número máximo total de nodos a recolectar")
-    exp.add_argument("--assortativity", action="store_true", help="Calcular asortatividad")
-
-    clean = subparsers.add_parser("clean")
-    clean.add_argument("--input-prefix", required=True)
-
-    assort = subparsers.add_parser("assortativity")
-    assort.add_argument("--input-prefix", required=True)
-
+def main():
+    parser = argparse.ArgumentParser(description="Descarga posts y replies de Bluesky y genera red reply/quote")
+    parser.add_argument('--handle', required=True, help="Tu handle de Bluesky")
+    parser.add_argument('--app-password', required=True, help="Tu app password de Bluesky")
+    parser.add_argument('--targets', nargs='+', required=True, help="Lista de handles objetivo")
+    parser.add_argument('--limit', type=int, default=100, help="Número de posts por usuario objetivo")
+    parser.add_argument('--output-prefix', default='bluesky_extended', help="Prefijo para los ficheros de salida")
+    parser.add_argument('--max-replies-per-post', type=int, default=None, help="Número máximo de replies por post original")
     args = parser.parse_args()
 
-    if args.command == "export":
-        G = fetch_full_network(
-            handle=args.handle,
-            app_password=args.app_password,
-            target_user=args.target,
-            output_prefix=args.output_prefix,
-            limit=args.limit,
-            depth=args.depth,
-            delay=args.delay,
-            max_nodes=args.max_nodes,
-        )
-        export_graph(G, args.output_prefix)
+    print("🔐 Autenticando...")
+    client = Client()
+    client.login(args.handle, args.app_password)
+    print(f"[+] Login exitoso como {client.me}")
 
-        if hasattr(args, 'assortativity') and args.assortativity:
-            compute_assortativity(G)
+    posts = fetch_posts_and_replies(client, [h.lstrip('@') for h in args.targets if h.strip()], args.limit, max_replies_per_post=args.max_replies_per_post)
 
-    elif args.command == "clean":
-        clean_existing_files(args.input_prefix)
+    print("💾 Guardando Excel...")
+    df = pd.DataFrame(posts)
+    if not df.empty and 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.tz_localize(None)
+    else:
+        print("⚠️ No se han descargado posts o falta la columna 'date'.")
+    df.to_excel(f"{args.output_prefix}.xlsx", index=False)
 
-    elif args.command == "assortativity":
-        G = load_graph_from_gexf(args.input_prefix)
-        compute_assortativity(G)
+    print("🔗 Construyendo grafo...")
+    G = build_graph(posts)
+    nx.write_graphml(G, f"{args.output_prefix}.graphml")
+    nx.write_gexf(G, f"{args.output_prefix}.gexf")
+    
+    print("✅ Exportación completada.")
+
+if __name__ == "__main__":
+    main()
