@@ -38,6 +38,35 @@ def fetch_posts_and_replies(client, handles, limit_per_user, delay=1.0, max_repl
                 }
                 all_posts.append(main_post)
 
+
+                # Detectar quotes
+                if hasattr(post_data.record, "embed") and hasattr(post_data.record.embed, "record"):
+                    try:
+                        quoted = post_data.record.embed.record
+                        quoted_user = getattr(getattr(quoted, "author", None), "handle", None)
+                        quoted_uri = getattr(quoted, "uri", None)
+                        if quoted_user and quoted_uri:
+                            quote_data = {
+                                'id': post_data.uri.split('/')[-1],
+                                'date': post_data.record.created_at,
+                                'name': post_data.author.handle,
+                                'username': post_data.author.handle,
+                                'text': post_data.record.text,
+                                'url': f"https://bsky.app/profile/{post_data.author.handle}/post/{post_data.uri.split('/')[-1]}",
+                                'referenced_post_id': quoted_uri.split("/")[-1],
+                                'referenced_username': quoted_user,
+                                'referenced_post_type': 'reply_or_quote',
+                                'referenced_post_url': f"https://bsky.app/profile/{quoted_user}/post/{quoted_uri.split('/')[-1]}",
+                                'like_count': None,
+                                'reply_count': None,
+                                'repost_count': None,
+                                'links': [],
+                                'alt_texts': []
+                            }
+                            all_posts.append(quote_data)
+                    except Exception as e:
+                        print(f"[!] Error al procesar quote de {quoted_user}: {e}")
+
                 # Fetch replies to this post
                 try:
                     thread = client.app.bsky.feed.get_post_thread({'uri': post_uri})
@@ -62,7 +91,7 @@ def fetch_posts_and_replies(client, handles, limit_per_user, delay=1.0, max_repl
                                 'url': f"https://bsky.app/profile/{author}/post/{reply_uri.split('/')[-1]}",
                                 'referenced_post_id': post_data.uri.split("/")[-1],
                                 'referenced_username': handle,
-                                'referenced_post_type': 'replied_to',
+                                'referenced_post_type': 'reply_or_quote',
                                 'referenced_post_url': f"https://bsky.app/profile/{handle}/post/{post_data.uri.split('/')[-1]}",
                                 'like_count': None,
                                 'reply_count': None,
@@ -103,15 +132,17 @@ def build_graph(posts):
     from collections import Counter
     count_posts = Counter(p['username'] for p in posts if p.get('username'))
     nx.set_node_attributes(G, count_posts, "post_count")
+    followers = {post['username']: post.get('followersCount') for post in posts if 'followersCount' in post}
+    nx.set_node_attributes(G, followers, 'followersCount')
+    follows = {post['username']: post.get('followsCount') for post in posts if 'followsCount' in post}
+    nx.set_node_attributes(G, follows, 'followsCount')
+    posts = {post['username']: post.get('postsCount') for post in posts if 'postsCount' in post}
+    nx.set_node_attributes(G, posts, 'postsCount')
+    topics = {post['username']: post.get('topicLabel') for post in posts if 'topicLabel' in post}
+    nx.set_node_attributes(G, topics, 'topicLabel')
+    created = {post['username']: str(post['date']) for post in posts if 'date' in post}
+    nx.set_node_attributes(G, created, 'created_at')
 
-    return G
-
-    G = nx.DiGraph()
-    for post in posts:
-        source = post['username']
-        target = post['referenced_username']
-        if source and target:
-            G.add_edge(source, target, type=post['referenced_post_type'])
     return G
 
 def main():
