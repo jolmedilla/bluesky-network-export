@@ -173,7 +173,8 @@ def main():
     print("🔗 Construyendo grafo...")
     G = build_graph(posts)
     nx.write_graphml(G, f"{args.output_prefix}.graphml")
-    nx.write_gexf(G, f"{args.output_prefix}.gexf")
+    # Hay un problema conocido con NetworkX y GEXF, por lo que se usa GraphML
+    #nx.write_gexf(G, f"{args.output_prefix}.gexf")
     
     print("✅ Exportación completada.")
 

@@ -1,165 +1,84 @@
 
-# Bluesky Network Export (versión extendida)
+# Bluesky Reply & Quote Network Export
 
-Este script permite descargar la red social (seguidores y seguidos) de cualquier usuario público de [Bluesky](https://bsky.app), y exportarla a archivos compatibles con [Gephi](https://gephi.org) y CSV para su análisis.
+Este script permite descargar interacciones (respuestas y citas) entre usuarios de [Bluesky](https://bsky.app), construir una red social dirigida y exportar los resultados a formatos compatibles con análisis en Gephi y en Python.
 
-Esta versión añade atributos estructurales y temáticos para análisis de homofilia y asortatividad, tal como se requiere en prácticas académicas como las del Máster en Ingeniería y Ciencia de Datos de la UNED.
+## ✨ Funcionalidad
 
-## Características
+A partir de una lista de handles públicos de Bluesky, el script:
 
-- Exporta relaciones `followers` y `follows`
-- Soporte de exploración recursiva por niveles (`--depth`)
-- Control de tasa (`--delay`) para evitar bloqueos de la API
-- Exporta atributos enriquecidos de cada nodo:
-  - `followersCount`
-  - `followsCount`
-  - `postsCount`
-  - `topicLabel` (categoría temática simple basada en la biografía)
-- Salida en `.gexf`, `.csv` (nodos y aristas)
-- Compatible con Gephi para análisis de redes sociales
+- Descarga hasta N posts por usuario
+- Extrae replies y quotes hacia esos posts
+- Construye un grafo dirigido de relaciones entre usuarios
+- Añade atributos relevantes a los nodos y aristas
+- Exporta:
+  - `nombre.graphml`: red en formato Gephi
+  - `nombre.xlsx`: todos los datos en una hoja Excel
 
-## Instalación
+## 🛠️ Requisitos
 
-## Preparación del entorno (setup)
+Python 3.10+ con las siguientes dependencias:
 
-Puedes preparar todo el entorno de trabajo automáticamente usando el script `setup_env.sh`.
+- `atproto`, `networkx`, `pandas`, `openpyxl`, `spacy`, `tqdm`, `datetime`
 
-### 1. Ejecuta el script
+Puedes instalarlas automáticamente con:
 
 ```bash
 bash setup_env.sh
 ```
 
-Esto realizará lo siguiente:
+En Windows:
 
-- Creará un entorno virtual en `./venv`
-- Instalará todas las dependencias necesarias desde `requirements.txt`
-- Descargará el modelo de lenguaje `en_core_web_sm` de spaCy
-
-### 2. Activa el entorno virtual
-
-```bash
-source venv/bin/activate
+```bat
+setup_env_windows.bat
 ```
 
-Una vez activado, ya puedes ejecutar el script con tus parámetros:
+Además, deberás descargar el modelo de spaCy:
 
 ```bash
-python bluesky_to_gephi_nlp.py --handle ... --app-password ... --target ...
+python -m spacy download en_core_web_sm
 ```
 
-
-## Ejemplo de uso
+## 🚀 Uso
 
 ```bash
-python bluesky_to_gephi_extended.py \
-  --handle tuusuario.bsky.social \
-  --app-password xxxx-xxxx-xxxx-xxxx \
-  --target @otro.bsky.social \
-  --output-prefix salida \
+python bluesky_to_gephi.py \
+  --handle tu_handle.bsky.social \
+  --app-password tu_app_password \
+  --targets @usuario1.bsky.social @usuario2.bsky.social ... \
   --limit 100 \
-  --depth 2 \
-  --delay 1.0
+  --output-prefix nombre_dataset \
+  --max-replies-per-post 10
 ```
 
-## Archivos generados
+### Argumentos
 
-- `salida.gexf`: red para Gephi
-- `salida_nodes.csv`: nodos con atributos (incluyendo conteos y etiquetas temáticas)
-- `salida_edges.csv`: relaciones dirigidas entre usuarios
+| Parámetro               | Descripción                                                    |
+|------------------------|----------------------------------------------------------------|
+| `--handle`             | Tu handle de Bluesky (ej: `usuario.bsky.social`)               |
+| `--app-password`       | App password generado desde [app passwords](https://bsky.app/settings/app-passwords) |
+| `--targets`            | Lista de handles objetivo (usuarios de los que quieres los posts) |
+| `--limit`              | Número máximo de posts a descargar por usuario objetivo        |
+| `--output-prefix`      | Prefijo para los ficheros generados                            |
+| `--max-replies-per-post` | Máximo número de replies a conservar por post original         |
 
-## Atributos exportados por nodo
+## 📁 Archivos de salida
 
-| Atributo         | Descripción                                     |
-|------------------|-------------------------------------------------|
-| handle           | Identificador único del usuario                 |
-| displayName      | Nombre visible del perfil                       |
-| description      | Biografía textual del usuario                   |
-| avatar           | URL de imagen de perfil                         |
-| followersCount   | Número de seguidores                            |
-| followsCount     | Número de cuentas a las que sigue              |
-| postsCount       | Número de publicaciones                        |
-| topicLabel       | Etiqueta temática estimada desde la biografía  |
+- `PREFIX.graphml`: red lista para cargar en Gephi
+- `PREFIX.xlsx`: tabla tabular combinada para análisis en Jupyter
 
-## Ejemplos de etiquetas temáticas (`topicLabel`)
+## 🎯 Casos de uso
 
-- `tech`: menciona IA, datos, modelos, etc.
-- `art`: arte, música, creatividad
-- `politics`: política, activismo
-- `literature`: libros, poesía, escritura
-- `climate`: ecología, medio ambiente
-- `other`: sin tema detectado
+- Análisis de homofilia y asortatividad
+- Detección de comunidades por modularidad (en Gephi)
+- Clustering no supervisado (en Python)
+- Análisis temporal (con `created_at`)
+- Visualización y filtrado de temas (`topicLabel`)
 
-## Cómo se detecta el tema (`topicLabel`) usando NLP
+## 🧪 Sugerencia
 
-Esta versión usa `spaCy` para realizar análisis semántico básico de la biografía de cada usuario.
+Después de generar los datos, puedes usar Gephi para visualizar la red y Python (Jupyter) para aplicar técnicas de clustering y análisis.
 
-1. Se tokeniza y lematiza el texto.
-2. Se eliminan palabras vacías.
-3. Se compara con listas de lemas representativos por tema.
+---
 
-**Temas detectados automáticamente:**
-
-- `tech`: inteligencia artificial, machine learning, datos, tecnología
-- `art`: arte, ilustración, música, diseño
-- `politics`: política, activismo, gobierno
-- `literature`: escritura, libros, autores
-- `climate`: medio ambiente, ecología, sostenibilidad
-- `other`: cuando no se detecta un tema predominante
-
-## Cómo usar `topicLabel` en Gephi
-
-
-Una vez importes el archivo `salida_nodes.csv` o el `.gexf` en Gephi, podrás trabajar con la columna `topicLabel` para analizar homofilia y asortatividad temática.
-
-### 1. Visualización por tema
-
-- En la pestaña **Appearance**, elige **Nodes > Partition > topicLabel**.
-- Aplica diferentes colores a cada valor (`tech`, `art`, `politics`, etc.).
-- Esto te permitirá ver comunidades temáticas visualmente.
-
-### 2. Cálculo de asortatividad
-
-- Ve a **Statistics > Assortativity**.
-- Elige `topicLabel` como atributo categórico.
-- Ejecuta el cálculo para obtener el **coeficiente de homofilia** temática:
-  - Valor cercano a **1**: usuarios de temas similares se conectan entre sí.
-  - Valor cercano a **0**: las conexiones no dependen del tema.
-  - Valor negativo: usuarios de temas distintos tienden a conectarse.
-
-### 3. Filtrado o agrupamiento
-
-- Puedes usar **Filters > Attributes > topicLabel** para seleccionar un subconjunto de nodos de un tema concreto.
-- También puedes exportar por separado subgrafos de cada tema si lo necesitas para análisis comparativo.
-
-Este enfoque te permite estudiar asortatividad dentro de clases semánticas aproximadas sin necesidad de etiquetado manual ni NLP avanzado.
-
-## Cálculo de asortatividad (opcional)
-
-Puedes calcular directamente desde Python diferentes coeficientes de asortatividad con el flag `--assortativity`.
-
-### Cómo usarlo
-
-```bash
-python bluesky_to_gephi_nlp_assortativity.py \
-  --handle tuusuario.bsky.social \
-  --app-password xxxx-xxxx-xxxx-xxxx \
-  --target @otro.bsky.social \
-  --assortativity
-```
-
-### Qué se calcula
-
-- **Asortatividad por grado** (`degree_assortativity_coefficient`)
-- **Asortatividad numérica** por:
-  - `followersCount`
-  - `followsCount`
-  - `postsCount`
-- **Asortatividad categórica** por `topicLabel`
-
-Se imprimen los resultados directamente en consola. Esta opción es útil para hacer análisis preliminares sin depender de Gephi.
-
-
-## Licencia
-
-MIT
+Autor: Adaptado para fines académicos por un estudiante del Máster de Ingeniería y Ciencia de Datos (UNED).
