@@ -1,41 +1,84 @@
 
-# Bluesky Network Export
+# Bluesky Reply & Quote Network Export
 
-Este script permite descargar la red social (seguidores y seguidos) de cualquier usuario público de [Bluesky](https://bsky.app), y exportarla a archivos compatibles con [Gephi](https://gephi.org) y CSV para su análisis.
+Este script permite descargar interacciones (respuestas y citas) entre usuarios de [Bluesky](https://bsky.app), construir una red social dirigida y exportar los resultados a formatos compatibles con análisis en Gephi y en Python.
 
-## Características
+## ✨ Funcionalidad
 
-- Exporta seguidores y seguidos (`followers`, `follows`)
-- Soporte de exploración recursiva por niveles (`--depth`)
-- Control de tasa (`--delay`) para evitar bloqueos de la API
-- Progreso visual con `tqdm`
-- Salida en `.gexf`, `.csv` (nodos y aristas)
+A partir de una lista de handles públicos de Bluesky, el script:
 
-## Instalación
+- Descarga hasta N posts por usuario
+- Extrae replies y quotes hacia esos posts
+- Construye un grafo dirigido de relaciones entre usuarios
+- Añade atributos relevantes a los nodos y aristas
+- Exporta:
+  - `nombre.graphml`: red en formato Gephi
+  - `nombre.xlsx`: todos los datos en una hoja Excel
+
+## 🛠️ Requisitos
+
+Python 3.10+ con las siguientes dependencias:
+
+- `atproto`, `networkx`, `pandas`, `openpyxl`, `spacy`, `tqdm`, `datetime`
+
+Puedes instalarlas automáticamente con:
 
 ```bash
-pip install atproto networkx tqdm
+bash setup_env.sh
 ```
 
-## Ejemplo de uso
+En Windows:
+
+```bat
+setup_env_windows.bat
+```
+
+Además, deberás descargar el modelo de spaCy:
+
+```bash
+python -m spacy download en_core_web_sm
+```
+
+## 🚀 Uso
 
 ```bash
 python bluesky_to_gephi.py \
-  --handle tuusuario.bsky.social \
-  --app-password xxxx-xxxx-xxxx-xxxx \
-  --target @otro.bsky.social \
-  --output-prefix salida \
+  --handle tu_handle.bsky.social \
+  --app-password tu_app_password \
+  --targets @usuario1.bsky.social @usuario2.bsky.social ... \
   --limit 100 \
-  --depth 2 \
-  --delay 1.0
+  --output-prefix nombre_dataset \
+  --max-replies-per-post 10
 ```
 
-## Archivos generados
+### Argumentos
 
-- `salida.gexf`: red para Gephi
-- `salida_nodes.csv`: información de cada nodo (usuario)
-- `salida_edges.csv`: conexiones (`follows` y `followed_by`)
+| Parámetro               | Descripción                                                    |
+|------------------------|----------------------------------------------------------------|
+| `--handle`             | Tu handle de Bluesky (ej: `usuario.bsky.social`)               |
+| `--app-password`       | App password generado desde [app passwords](https://bsky.app/settings/app-passwords) |
+| `--targets`            | Lista de handles objetivo (usuarios de los que quieres los posts) |
+| `--limit`              | Número máximo de posts a descargar por usuario objetivo        |
+| `--output-prefix`      | Prefijo para los ficheros generados                            |
+| `--max-replies-per-post` | Máximo número de replies a conservar por post original         |
 
-## Licencia
+## 📁 Archivos de salida
 
-MIT
+- `PREFIX.graphml`: red lista para cargar en Gephi
+- `PREFIX.xlsx`: tabla tabular combinada para análisis en Jupyter
+
+## 🎯 Casos de uso
+
+- Análisis de homofilia y asortatividad
+- Detección de comunidades por modularidad (en Gephi)
+- Clustering no supervisado (en Python)
+- Análisis temporal (con `created_at`)
+- Visualización y filtrado de temas (`topicLabel`)
+
+## 🧪 Sugerencia
+
+Después de generar los datos, puedes usar Gephi para visualizar la red y Python (Jupyter) para aplicar técnicas de clustering y análisis.
+
+---
+
+Autor: Adaptado para fines académicos por un estudiante del Máster de Ingeniería y Ciencia de Datos (UNED).

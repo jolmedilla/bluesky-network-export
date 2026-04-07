@@ -1,0 +1,7 @@
+atproto>=0.0.35
+networkx>=3.0
+tqdm>=4.64
+spacy>=3.0
+pandas>=1.5
+datetime>=4.0
+openpyxl>=3.0
